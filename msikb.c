@@ -21,7 +21,7 @@
 
 //	Core functions
 int main (int, char **);
-void setKBPrefs( struct libusb_context *, char *);
+int setKBPrefs( struct libusb_context *, char *);
 void setColor( libusb_device_handle *, unsigned char, unsigned char, unsigned char);
 int detectMSiKB( libusb_device_handle *, struct libusb_device_descriptor *);
 
@@ -48,7 +48,11 @@ int main (int argc, char **argv) {
 			bHelp=0x00;
 		}
 	}
-	if ( bHelp) {
+//	Prepare to speak USB
+	int iRC = libusb_init( &pCtx);
+//	printf( "DBG: iRC=%d\n", iRC);
+	libusb_set_debug( pCtx, 3);
+	if ( setKBPrefs( pCtx, sRGB) && bHelp) {
 		printf( "\n");
 		printf( "You can specify color with a command-line parameter that\n");
 		printf( "looks like this:\n");
@@ -62,33 +66,39 @@ int main (int argc, char **argv) {
 		printf( "to green, which is the default (preferred by the author).\n");
 		printf( "\n");
 	}
-//	Prepare to speak USB
-	int iRC = libusb_init( &pCtx);
-	libusb_set_debug( pCtx, 3);
-	setKBPrefs( pCtx, sRGB);
 //	genDevSummary( pCtx);
 	libusb_exit( 0L);
 	return( 0);
 }
 
-void setKBPrefs( struct libusb_context *pCtx, char *sRGB) {
+int setKBPrefs( struct libusb_context *pCtx, char *sRGB) {
+	int iRet=1;
 	libusb_device **pDevs;
 	ssize_t iDevs = libusb_get_device_list( pCtx, &pDevs); //get the list of devices
-	libusb_device_handle *pDev = libusb_open_device_with_vid_pid( pCtx, 6000, 65280);
-	libusb_free_device_list( pDevs, 1);
-	if ( libusb_kernel_driver_active( pDev, 0) == 1) {
-		if ( libusb_detach_kernel_driver( pDev, 0) == 0) {
-			printf( "DBG: driver detached\n");
+//	printf( "DBG: iDevs=%d\n", iDevs);
+	if ( iDevs > 0) {
+		libusb_device_handle *pDev = libusb_open_device_with_vid_pid( pCtx, 6000, 65280);
+		if ( pDev != 0L) {
+			libusb_free_device_list( pDevs, 1);
+			if ( libusb_kernel_driver_active( pDev, 0) == 1) {
+				if ( libusb_detach_kernel_driver( pDev, 0) == 0) printf( "DBG: driver detached\n");
+			}
+			if ( libusb_set_configuration( pDev, 1) < 0) printf( "DBG: can't config\n");
+			if ( libusb_claim_interface( pDev, 0) < 0) printf( "DBG: can't claim\n");
+		//	Make changes to KB state
+		//	printf( "DBG: setting colors from RGB=%s\n", sRGB);
+			setColor( pDev, parseRed(sRGB), parseGreen(sRGB), parseBlue(sRGB));
+		//	Clean up
+			libusb_release_interface( pDev, 0);
+			libusb_close( pDev);
+		} else {
+			iRet = 0;
+			printf( "\n");
+			printf( "You might need to run the program as root (via sudo) ...\n");
+			printf( "\n");
 		}
 	}
-	if ( libusb_set_configuration( pDev, 1) < 0) printf( "DBG: can't config\n");
-	if ( libusb_claim_interface( pDev, 0) < 0) printf( "DBG: can't claim\n");
-//	Make changes to KB state
-	printf( "DBG: setting colors from RGB=%s\n", sRGB);
-	setColor( pDev, parseRed(sRGB), parseGreen(sRGB), parseBlue(sRGB));
-//	Clean up
-	libusb_release_interface( pDev, 0);
-	libusb_close( pDev);
+	return( iRet);
 }
 
 	
@@ -155,10 +165,10 @@ unsigned char parseColor( char *sRGB, int iHue) {
 		unsigned char bVal=0x00;
 		sHex[0]=sRGB[iX];
 		sHex[1]=sRGB[iX+1];
-		printf( "DBG: sHex=%s\n", sHex);
+//		printf( "DBG: sHex=%s\n", sHex);
 		if ( sscanf( sHex, "%hhx", &bVal) == 1) {
 			bRet=bVal;
-			printf( "DBG: bRet=%hhu\n", bRet);
+//			printf( "DBG: bRet=%hhu\n", bRet);
 		}
 	}
 	return( bRet);
@@ -167,7 +177,7 @@ unsigned char parseColor( char *sRGB, int iHue) {
 void genDevSummary( struct libusb_context *pCtx) {
 	libusb_device **pDevs = NULL;
 	ssize_t iDevs = libusb_get_device_list( pCtx, &pDevs);
-	printf( "DBG: looping through %d USB devices ...\n", (int)iDevs);
+//	printf( "DBG: looping through %d USB devices ...\n", (int)iDevs);
 	int iDev=-1;
 	for ( int iIdx=0; ((iIdx < iDevs) && (iDev < 0)); iIdx++) {
 //		printf( "DBG: device %d ...\n", iIdx+1);
@@ -196,27 +206,27 @@ void showInfo( libusb_device_handle *pDev, struct libusb_device_descriptor *pDIn
 	const int iTxtSz=256;
 	unsigned char sTxt[iTxtSz];
 //	Get the string associated with iManufacturer
-	printf( "	iManufacturer = %d\n", pDInf->iManufacturer);
+	printf( "DBG:	iManufacturer = %d\n", pDInf->iManufacturer);
 	if ( pDInf->iManufacturer > 0) {
 		iRC = libusb_get_string_descriptor_ascii(	pDev, pDInf->iManufacturer, sTxt, iTxtSz);
 		if ( iRC > 0) {
-			printf( "	manufacturer = %s\n", sTxt);
+			printf( "DBG:	manufacturer = %s\n", sTxt);
 		} else printf( "DBG: get manufacturer failed\n");
 	}
 //	Get string associated with iProduct
-	printf( "	iProduct = %d\n", pDInf->iProduct);
+	printf( "DBG:	iProduct = %d\n", pDInf->iProduct);
 	if ( pDInf->iProduct > 0) {
 		iRC = libusb_get_string_descriptor_ascii(	pDev, pDInf->iProduct, sTxt, iTxtSz);
 		if ( iRC > 0) {
-			printf( "	product = %s\n", sTxt);
+			printf( "DBG:	product = %s\n", sTxt);
 		} else printf( "DBG: get product failed\n");
 	}
 //	Get string associated with iSerialNumber index.
-	printf( "	iSerialNumber = %d\n", pDInf->iSerialNumber);
+	printf( "DBG:	iSerialNumber = %d\n", pDInf->iSerialNumber);
 	if (pDInf->iSerialNumber > 0) {
 		iRC = libusb_get_string_descriptor_ascii(	pDev, pDInf->iSerialNumber, sTxt, iTxtSz);
 		if (iRC > 0) {
-			printf( "	serialnumber = %s\n", sTxt);
+			printf( "DBG:	serialnumber = %s\n", sTxt);
 		} else printf( "DBG: get serial number failed\n");
 	}
 	return;
@@ -225,24 +235,24 @@ void showInfo( libusb_device_handle *pDev, struct libusb_device_descriptor *pDIn
 void showInfoX( libusb_device *pDev) {
 	struct libusb_device_descriptor aDev;
 	if ( libusb_get_device_descriptor( pDev, &aDev) >= 0) {
-		printf( "Number of possible configurations: %d\n", (int)aDev.bNumConfigurations);
-		printf( "Device Class: %d\n", (int)aDev.bDeviceClass);
-		printf( "VendorID: %d\n", aDev.idVendor);
-		printf( "ProductID: %d\n", aDev.idProduct);
+		printf( "DBG: number of possible configurations: %d\n", (int)aDev.bNumConfigurations);
+		printf( "DBG: device class: %d\n", (int)aDev.bDeviceClass);
+		printf( "DBG: VendorID: %d\n", aDev.idVendor);
+		printf( "DBG: ProductID: %d\n", aDev.idProduct);
 		struct libusb_config_descriptor *pCfg;
 		libusb_get_config_descriptor( pDev, 0, &pCfg);
-		printf( "Interfaces: %d\n", (int)pCfg->bNumInterfaces);
+		printf( "DBG: number of interfaces: %d\n", (int)pCfg->bNumInterfaces);
 		for(int i=0; i<(int)pCfg->bNumInterfaces; i++) {
 			const struct libusb_interface *pIF = &pCfg->interface[i];
-			printf( "Number of alternate settings: %d\n", pIF->num_altsetting);
+			printf( "DBG: number of alternate settings: %d\n", pIF->num_altsetting);
 			for ( int j=0; j < pIF->num_altsetting; j++) {
 				const struct libusb_interface_descriptor *pIFD = &pIF->altsetting[j];
-				printf( "Interface Number: %d\n", (int)pIFD->bInterfaceNumber);
-				printf( "Number of endpoints: %d\n", (int)pIFD->bNumEndpoints);
+				printf( "DBG: interface number: %d\n", (int)pIFD->bInterfaceNumber);
+				printf( "DBG: number of endpoints: %d\n", (int)pIFD->bNumEndpoints);
 				for ( int k=0; k < (int)pIFD->bNumEndpoints; k++) {
 					const struct libusb_endpoint_descriptor *pEP = &pIFD->endpoint[k];
-					printf( "Descriptor Type: %d\n", (int)pEP->bDescriptorType);
-					printf( "EP Address: %d\n", (int)pEP->bEndpointAddress);
+					printf( "DBG: descriptor type: %d\n", (int)pEP->bDescriptorType);
+					printf( "DBG: endpoint addr: %d\n", (int)pEP->bEndpointAddress);
 				}
 			}
 		}
