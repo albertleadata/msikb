@@ -1,0 +1,7 @@
+# Ensure this file isn't ignored
+!.gitignore
+# Ignore files with these extensions
+*.swp
+*.o
+# Ignore these specific binaries
+msikb
